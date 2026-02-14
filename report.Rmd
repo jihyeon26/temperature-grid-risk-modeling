@@ -1,6 +1,6 @@
 ---
 title: "Weather Effects on Electricity Demand and Grid Stability in Switzerland (2020–2024)"
-author: "Choung Jihyeon, Perera Stefni"
+author: "Choung Jihyeon"
 date: "`r format(Sys.Date(), '%Y-%m-%d')`"
 output:
   html_document:
@@ -715,6 +715,8 @@ This analysis examined how temperature-driven demand patterns interact with grid
 
 The findings show that rising demand alone does not fully explain periods of elevated costs. Rather, temperature-driven load increases interact with limited system flexibility, resulting in disproportionately higher balancing activity and costs once critical load levels are exceeded. This suggests that operational risk intensifies around identifiable stress thresholds, rather than increasing gradually over time.
 
+In addition, the relationship between grid stress and balancing prices varies across years, indicating that economic exposure is influenced not only by activation levels but also by broader market conditions. Elevated stress increases the likelihood of high and volatile prices, but the magnitude of cost escalation depends on the prevailing market regime.
+
 Overall, the results highlight the importance of integrating temperature-sensitive demand modeling into stabilization planning. Combining demand forecasts with threshold-based risk monitoring can improve early identification of high-stress conditions and support more informed operational decisions during extreme weather events.
 
 ---
@@ -727,12 +729,4 @@ Furthermore, grid stress and stabilization costs are assessed using proxy indica
 
 Finally, the analysis is based on historical observations from 2020–2024 and assumes stable structural relationships over time. Changes in market conditions, system flexibility, or operational strategies may influence future temperature–risk relationships, which limits the direct generalizability of the results beyond the observed period.
 
----
 
-# Reflection on Using Generative AI
-
-In this project, we used Generative AI as a helpful tool to improve our workflow in R. Our aim was to get AI-generated advice on more efficient methods and to enhance the clarity of our final documentation. It was especially useful for brainstorming ideas for our R Markdown layouts, which helped us expand the visual appeal of our HTML reports.
-
-However, we were careful to validate everything since the tool has its limitations. We found that without enough context, the AI sometimes suggested paths that didn’t align with our specific research goals. Additionally, it occasionally recommended outdated or unsuitable packages, so we made sure to specify the right libraries ourselves to keep our code stable.
-
-To maintain the accuracy of our results, we cross-checked the AI's suggestions with official documentation and tested everything iteratively in RStudio. This experience reinforced that while AI can make coding and formatting in R Markdown easier, the key decisions and final verification still need to rest with the researchers.
