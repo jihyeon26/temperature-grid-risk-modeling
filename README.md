@@ -1,8 +1,6 @@
 # Temperature-Driven Demand and Grid Stabilization Risk Analysis  
 ### Switzerland (2020–2024)
 
----
-
 ## Project Description
 
 This project analyzes how temperature variations relate to electricity demand,
@@ -15,8 +13,6 @@ Using daily data from 2020–2024, the analysis:
 - Defines a critical load threshold (≥ 2,100 MW)  
 - Develops predictive models for demand sensitivity and critical-load probability  
 - Simulates an operational scenario under extreme cold conditions (−7°C)
-
----
 
 ## Folder Structure
 
@@ -35,7 +31,6 @@ Project root directory:
 - **styles.css** – Custom styling used in the rendered HTML output  
 - **data/** – Contains input datasets in RDS format  
 
----
 
 ## Required R Packages
 
@@ -100,5 +95,7 @@ The project includes:
 ## Author
 
 Jihyeon Choung
+
 MSc Applied Information & Data Science
+
 Switzerland
