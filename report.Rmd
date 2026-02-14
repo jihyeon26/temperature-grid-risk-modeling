@@ -375,28 +375,41 @@ The right panel displays the distribution of prices within each temperature bin.
 Overall, the results suggest that both cold and warm temperature extremes are linked not only to higher average stabilization costs but also to greater price uncertainty. In contrast, moderate temperature bins correspond to more stable and cost-efficient grid conditions.
 
 ### Relationship between grid stress and price of secondary control energy
-```{r fig-sec-energy-vs-costs, fig.cap="Figure 7. Relationship between secondary control energy deployment and stabilization costs.", echo=FALSE}
+```{r fig-sec-energy-vs-costs, fig.cap="Figure 7. Relationship between secondary control energy deployment and balancing prices, colored by year (2020–2024). Higher activation levels are associated with elevated and more volatile prices, with notable differences across years reflecting changing market conditions.", echo=FALSE}
 
-# Visualize the association between energy activation and price.
-ggplot(df,
-       aes(x = sec_energy_mw,
-           y = sec_energy_price,
-           color = sec_energy_mw)) +
-  geom_point(size = 1) +
-  theme_bw() +
-  theme(plot.title = element_text(face = "bold")) +
+# 1. Prepare the data: Extract year and ensure it's a factor (categorical)
+df_plot <- df %>%
+  mutate(year = as.factor(year(date)))
+
+# 2. Create the interactive scatter plot
+p <- ggplot(df_plot, 
+            aes(x = sec_energy_mw, 
+                y = sec_energy_price, 
+                color = year)) + # Changed color to 'year'
+  geom_point(size = 1, 
+             alpha = 0.6,    # Added transparency to see overlapping points better
+             aes(text = paste("Year:", year,
+                              "<br>sec_energy_mw (MW):", round(sec_energy_mw, 2),
+                              "<br>sec_energy_price (EUR):", round(sec_energy_price, 2)))) +
+  scale_color_viridis_d() +  # Note the '_d' for discrete data (factors)
+  theme_bw(base_size = 14) + # Larger text as we discussed before
+  theme(plot.title = element_text(face = "bold"),
+        panel.border = element_blank(),
+        axis.line = element_line(colour = "grey80")) +
   labs(x = "Secondary control energy (MW)",
-    y = "Secondary control energy price (EUR)"
-  )
+       y = "Secondary control energy price (EUR)",
+       color = "Year")
+
+# 3. Render as plotly
+ggplotly(p, tooltip = "text")
+
 ```
 
-The scatter plot illustrates the relationship between the deployment of positive secondary control energy (grid stress) and the corresponding balancing price. Each point represents one day, showing how prices respond to different levels of activation.
+The scatter plot shows how secondary control energy deployment relates to balancing prices, with observations colored by year. A positive relationship is visible: higher activation levels are generally associated with higher prices and greater price dispersion.
 
-A positive relationship is visible: as secondary control energy deployment increases, prices tend to rise. At low activation levels (below roughly 3–4 MW), prices are generally concentrated at lower values with relatively limited dispersion. However, as activation increases, the spread of prices becomes much wider, and high-price observations occur more frequently.
+However, the strength of this relationship varies across years. In 2020, prices remain relatively low and stable even at moderate activation levels. In contrast, 2022 stands out with substantially higher prices and frequent extreme spikes, even when activation volumes are comparable to earlier years. The years 2023 and 2024 show elevated price levels relative to 2020, though less extreme than 2022.
 
-Importantly, the relationship is not perfectly linear. While higher activation increases the likelihood of elevated prices, similar levels of grid stress can still correspond to different price outcomes. This indicates that although grid stress is a key driver of cost pressure, short-term market conditions also influence final price levels.
-
-Overall, the figure suggests that elevated balancing effort is associated with both higher average prices and greater price volatility, highlighting how operational stress translates into economic risk.
+This pattern indicates that while grid stress increases cost pressure, the magnitude of economic exposure depends on broader market conditions. Elevated activation raises the likelihood of high prices, but the intensity of price responses differs across market regimes.
 
 ## Realized Stabilization Cost and Nonlinear Risk Thresholds
 
@@ -693,40 +706,6 @@ ggplot(temp_grid, aes(x = temperature)) +
 Figure 15 illustrates the relationship between total demand and system risk. The linear model provides a steady baseline for how demand increases as temperatures fall. In contrast, the logistic model captures the nonlinear “tipping point” in system stability.
 
 This comparison reveals an important operational insight: while projected demand growth appears gradual and predictable in the linear framework, the probability of entering a critical regime rises sharply around freezing temperatures. As a result, the −7°C scenario represents a high-risk zone. In this range, even small temperature declines can lead to disproportionately large increases in system vulnerability, despite only modest increases in total MW demand.
-
----
-
-# Chapter of Choice: Interactive exploration of secondary control energy and secondary control prices
-
-This chapter provides an interactive extension of the analysis presented in Chapter 4.1.5, which examined the relationship between the deployment of secondary control energy as a proxy for grid stress and the resulting stabilisation costs. The objective is to explore this relationship at the observation level and reveal patterns that remain hidden in aggregated representations.
-
-```{r fig-interactive-stabilisation-costs, echo=FALSE, out.width="98%",  fig.cap = "Figure 16. Interactive relationship between secondary control energy and secondary control energy prices."}
-
-# Create interactive scatter plot of energy activation and price
-ggplotly(ggplot(df,
-         aes(x=sec_energy_mw, 
-             y=sec_energy_price,
-             color=sec_energy_mw)) +
-  geom_point(size=1,
-             aes(text = paste("sec_energy_mw (MW):", round(sec_energy_mw, 2),
-  "<br>sec_energy_price (EUR):", round(sec_energy_price, 2))))+
-    scale_color_viridis_c() +
-   theme_bw() +
-  theme(plot.title = element_text(face = "bold")) +
-  labs(x = "Secondary control energy (MW)",
-    y = "Secondary control energy price (EUR)"
-  ), tooltip = "text")
-
-```
-
-
-The interactive visualisation enables targeted inspection of individual days and direct comparison of combinations of deployed secondary control energy and associated costs. This shows that similar amounts of secondary control energy can be linked to markedly different stabilisation cost outcomes, highlighting variation that is not apparent in aggregated analyses.
-
-In particular, at moderate to higher deployments of secondary control energy, stabilisation costs exhibit substantial dispersion. The interactive approach allows areas of increased uncertainty to be identified and individual observations with exceptionally high costs to be examined in detail. This demonstrates that high stabilisation costs do not occur exclusively during extreme deployments but can also arise within comparable load situations.
-
-Moreover, the interactive approach supports a more nuanced interpretation of cost risks. By highlighting individual data points, outliers can be identified and assessed in relation to similar deployments of secondary control energy. This indicates that stabilisation costs are not solely determined by the amount of deployed control energy but are strongly influenced by short-term system conditions and market dynamics.
-
-While Chapter 4.1.5 presents aggregated relationships, the interactive approach enables targeted identification of outliers and cost-intensive situations within comparable secondary control energy deployments, thereby extending the analytical insight provided by the static analysis.
 
 ---
 
