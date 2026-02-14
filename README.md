@@ -21,6 +21,7 @@ Using daily data from 2020–2024, the analysis:
 ## Folder Structure
 
 Project root directory:
+```r
 .
 ├── report.Rmd
 ├── README.md
@@ -28,7 +29,7 @@ Project root directory:
 └── data/
   ├── Daily_Energy_Consumption2.rds
   └── daily_mean_temp.rds
-
+```
 
 - **report.Rmd** – Main analysis document (R Markdown report)  
 - **styles.css** – Custom styling used in the rendered HTML output  
@@ -96,3 +97,8 @@ The project includes:
 
 - Scenario-based risk simulation
 
+## Author
+
+Jihyeon Choung
+MSc Applied Information & Data Science
+Switzerland
