@@ -1,4 +1,4 @@
-# Temperature-Driven Demand and Grid Stabilization Risk Analysis  
+# Weather Effects on Electricity Demand and Grid Stability in Switzerland
 ### Switzerland (2020–2024)
 
 ## Project Description
