@@ -299,10 +299,15 @@ To translate the continuous temperature–demand relationship into operationally
 
 ---
 
-# Grid Stability & Economic Risk Signals
-Beyond the analysis of electricity demand, it is important to consider how the power system responds operationally under different conditions. In particular, extreme weather situations may require additional interventions to maintain grid stability, thereby affecting both operational effort and associated costs.
 
-This chapter provides a transition from a demand-focused perspective to an examination of system-level responses of the electricity grid. The following sections examine different aspects of grid stabilization and associated costs.
+
+
+
+
+# Grid Stability & Economic Risk Signals 
+Beyond the analysis of electricity demand, it is important to consider how the power system responds operationally under different conditions. In particular, extreme weather situations may require additional interventions to maintain grid stability, thereby affecting both operational effort and associated costs. 
+
+This chapter provides a transition from a demand-focused perspective to an examination of system-level responses of the electricity grid. The following sections examine different aspects of grid stabilization and associated costs. 
 
 ## Price Dynamics under Temperature and Load Stress
 
@@ -315,10 +320,10 @@ These temperature categories form the common structural basis for all subsequent
 
 
 ```{r temperature-intervals, echo=FALSE, message=FALSE, warning=FALSE}
-# Create temperature intervals (categorical variable)
+# Create temperature intervals
 df <- df %>%
   mutate(
-    temp_categorie = cut(
+    temp_bin = cut(
       temperature,
       breaks = c(-Inf, -10, 0, 10, 20, 30, Inf),
       include.lowest = TRUE
@@ -326,153 +331,51 @@ df <- df %>%
   )
 ```
 
+### Mean and distribution grid stress across temperature bins
+```{r fig-price, fig.cap="Figure 6. Mean and distribution of secondary control energy prices across temperature bins.", fig.show='hold', out.width='48%'}
 
-```{r temperature_intervals_output, echo=FALSE, results='asis'}
-cat("
-<details>
-<summary><strong>Temperature Intervals</strong></summary>
-<br>
-")
-
-# Display temperature interval labels for reporting purposes
-knitr::kable(
-  data.frame(
-    Temperature_Intervals = c(
-      "< −10 °C",
-      "−10 to 0 °C",
-      "0 to 10 °C",
-      "10 to 20 °C",
-      "20 to 30 °C",
-      "> 30 °C"
-    )
-  )
-)
-
-cat("</details>")
-```
-
-### Mean grid stress across temperature categories
-
-The mean level of grid stress is examined across predefined temperature categories using the average activation of positive secondary control energy. As outlined in the introductory section, temperature values are grouped into fixed intervals ranging from very cold conditions below −10 °C to warm conditions between 20 °C and 30 °C. Each category therefore represents a distinct temperature range under which the balancing effort of the power system is evaluated.
-
-
-```{r fig-mean-grid-stress, echo = FALSE, fig.cap = "Figure 6. Mean grid stress across temperature categories. Average activation of positive secondary control energy varies across temperature ranges, with higher mean values during cold conditions and lower activation levels at moderate temperatures."}
-
-# Analyze how average grid stress varies across temperature intervals
+# Plot 1: Average Grid Stress
 df %>%
-  group_by(temp_categorie) %>%
+  group_by(temp_bin) %>%
   summarise(
     mean_sec_energy = mean(sec_energy_mw, na.rm = TRUE)
   ) %>%
-  ggplot(aes(x = temp_categorie,
+  ggplot(aes(x = temp_bin,
              y = mean_sec_energy,
-             fill = temp_categorie)) +
-  geom_col() +
-  theme_bw() +
+             fill = temp_bin)) +
+  geom_col(width = 0.7, show.legend = FALSE) + 
+  theme_bw(base_size = 14) +                   
+  theme(panel.border = element_blank(),
+        axis.line = element_line(colour = "grey80")) +
   labs(
-    x = "Temperature categories (°C)",
-    y = "Mean secondary control energy (MW)"
-  )
-```
-
-
-The bar chart illustrates clear differences in average secondary control energy activation across the temperature ranges. The highest mean values are observed during cold temperature conditions, particularly in the range between −10 °C and 0 °C, indicating increased balancing requirements under cold weather conditions. In contrast, moderate temperatures between 10 °C and 20 °C are associated with the lowest average activation levels, suggesting comparatively stable operating conditions for the electricity grid.
-
-At warmer temperatures between 20 °C and 30 °C, the mean activation of secondary control energy increases again, though not to the same extent as during cold conditions. This pattern indicates that both cold and warm temperature ranges are associated with elevated grid stress, while moderate temperatures correspond to lower average balancing effort.
-
-### Variability of grid stress across temperature categories
-
-This analysis highlights how strongly grid stress fluctuates within each temperature range.
-Variability captures the extent to which secondary control energy activation deviates from typical levels and thus reflects the stability of grid balancing requirements. In this context, higher variability indicates a broader spread of values and, in some temperature ranges, a greater occurrence of extreme grid stress events.
-
-```{r fig-sec-energy-variability, echo = FALSE, fig.cap = "Figure 7. Variability of secondary control energy across temperature categories. The boxplots show how strongly grid stress fluctuates within each temperature range, highlighting differences in the spread and occurrence of extreme values."}
-
-# Compare secondary control energy variability across temperature intervals.
-ggplot(df,
-       aes(x = temp_categorie,
-           y = sec_energy_mw,
-           fill = temp_categorie)) +
-  geom_boxplot() +
-  theme_bw() +
-  labs(
-    x = "Temperature categories (°C)",
-    y = "Secondary control energy (MW)"
-  )
-```
-
-
-For −10 to 0 °C, the spread is relatively high. The box is clearly pronounced and the whiskers extend far upward, indicating noticeable variability. Only two outliers above the upper whisker are visible. These two points represent individual days with unusually high activation, meaning substantially more balancing was required than is typical for this category.
-
-For 0 to 10 °C, the median is lower than in −10 to 0 °C, but variability remains clearly visible. A key feature is the large number of outliers above the upper whisker. These points form a vertical sequence reaching well above 10 MW. This indicates that while many days fall within a moderate range, this category repeatedly includes days with strong spikes in balancing requirements.
-
-For 10 to 20 °C, the box is the smallest and the whiskers are shorter. This suggests the lowest variability and thus the most stable conditions among the shown categories. At the same time, several outliers above the upper whisker are still visible. These outliers show that occasional peaks can occur even under moderate temperatures, although the typical range is much more stable overall.
-
-For 20 to 30 °C, the spread increases again compared to the moderate temperature range. The box is taller than in the 10 to 20 °C category and the whiskers extend further, indicating renewed fluctuations in balancing activation. At the same time, no outliers are observed in this temperature category, meaning that the observed variability arises from a generally wider distribution.
-
-Overall, the variability of secondary control energy differs clearly across temperature categories. Cold and cool temperature ranges show more volatile balancing behavior, while moderate temperatures between 10 and 20 °C are associated with the most stable grid conditions. At warmer temperatures, variability increases again, indicating renewed fluctuations in grid stress without pronounced extreme events.
-
-### Mean stabilization costs across temperature categories
-This section examines how average stabilization costs vary across different temperature conditions using mean secondary control energy prices as an economic indicator.
-
-
-
-```{r fig-mean-stabilization-costs, fig.cap="Figure 8. Mean secondary control energy prices across temperature categories. Average prices are lowest at moderate temperatures and increase during both cold and warm conditions."}
-# Compare mean secondary control energy prices across temperature intervals.
-df %>%
-  group_by(temp_categorie) %>%
-  summarise(mean_price = mean(sec_energy_price, na.rm = TRUE)) %>%
-  ggplot(aes(x = temp_categorie,
-             y = mean_price,
-             fill = temp_categorie)) +
-  geom_col() +
-  theme_bw() +
-  labs(
-    x = "Temperature categories (°C)",
+    x = "Temperature bins (°C)",
     y = "Mean secondary control energy price (EUR/MWh)"
   )
-```
 
-
-The bar chart shows clear differences in mean secondary control energy prices across the temperature ranges. The highest average prices are observed at warm temperatures between 20 °C and 30 °C, indicating increased stabilization costs under high-temperature conditions. Elevated mean prices are also visible during cold temperature ranges below 0 °C, suggesting that grid stabilization is comparatively expensive during cold weather periods as well.
-
-In contrast, moderate temperature ranges between 0 °C and 20 °C are associated with lower average secondary control energy prices. In particular, the lowest mean prices occur in the range between 0 °C and 10 °C, indicating comparatively cost-efficient grid operation under mild temperature conditions.
-
-Overall, the results indicate that average stabilization costs are lowest within the moderate temperature range between 0 °C and 20 °C and increase during both cold conditions below 0 °C and warm conditions between 20 °C and 30 °C. This pattern suggests that economic pressure on grid stabilization is elevated under temperature extremes, while moderate temperature ranges are associated with lower average balancing costs.
-
-### Variability of stabilization costs across temperature categories
-This analysis examines how strongly grid stabilization costs fluctuate across different temperature ranges. Variability in secondary control energy prices reflects the stability of balancing costs and indicates how predictable or volatile grid stabilization becomes under varying temperature conditions. In this context, higher variability corresponds to a broader dispersion of prices and increased uncertainty in stabilization costs.
-
-```{r fig-sec-energy-price-variability, echo = FALSE, fig.cap = "Figure 9. Variability of secondary control energy prices across temperature categories. The boxplots illustrate how secondary control energy prices vary within each temperature range. Differences in dispersion and the presence of extreme values indicate varying price volatility under different temperature conditions."}
-
-# Compare price variability across temperature intervals.
+# Plot 2: Boxplot (Price Distribution)
 ggplot(df,
-       aes(x = temp_categorie,
+       aes(x = temp_bin,
            y = sec_energy_price,
-           fill = temp_categorie)) +
-  geom_boxplot() +
-  theme_bw() +
-  theme(plot.title = element_text(face = "bold")) +
-  labs(x = "Temperature categories (°C)",
+           fill = temp_bin)) +
+  geom_boxplot(width = 0.7, show.legend = FALSE, outlier.size = 0.7) +
+  theme_bw(base_size = 14) +
+  theme(panel.border = element_blank(),
+        axis.line = element_line(colour = "grey80")) +
+  labs(x = "Temperature bins (°C)",
     y = "Secondary control energy price (EUR)"
   )
 
+
 ```
 
+The left panel shows the average secondary control energy price across predefined temperature bins. A clear pattern appears: prices are lowest in the moderate temperature range (10–20°C) and increase under both colder and warmer conditions. In particular, temperatures below 0°C are associated with noticeably higher average prices, indicating greater stabilization costs during cold periods. Warm conditions (20–30°C) also show elevated prices, though the increase is less pronounced than in extreme cold.
 
-For −10 to 0 °C, the variability of secondary control energy prices is relatively high. The box is clearly pronounced and the whiskers extend far upward, indicating substantial fluctuations in stabilization costs. Only one outlier above the upper whisker is visible, representing a single day with exceptionally high prices and thus unusually elevated grid stabilization costs under cold conditions.
+The right panel displays the distribution of prices within each temperature bin. Cold bins show a wider spread and higher upper values, suggesting greater price volatility and more frequent spikes. Moderate temperature bins have lower median prices and a narrower distribution, reflecting more stable and predictable conditions. Under warmer bins, variability increases again, indicating renewed fluctuations in balancing prices.
 
-For 0 to 10 °C, the median price is lower than in the coldest category, while variability remains clearly visible. The distribution shows a broad spread and several outliers above the upper whisker. This indicates that although stabilization costs are often moderate in this temperature range, repeated price spikes can occur.
+Overall, the results suggest that both cold and warm temperature extremes are linked not only to higher average stabilization costs but also to greater price uncertainty. In contrast, moderate temperature bins correspond to more stable and cost-efficient grid conditions.
 
-For 10 to 20 °C, the box is comparatively small and the whiskers are shorter, indicating a relatively narrow typical price range. However, this category shows a large number of outliers above the upper whisker, forming a dense vertical sequence of high price values. This suggests that while most stabilization costs remain within a stable central band, cost spikes occur frequently and can be reducing overall cost predictability in this temperature range.
-
-For 20 to 30 °C, variability in secondary control energy prices remains clearly visible. The box is relatively pronounced, indicating noticeable dispersion in stabilization costs within this temperature range. No outliers above the upper whisker are visible, suggesting that price variability under warm temperature conditions is driven by differences within the typical price range.
-
-The findings demonstrate that the variability of stabilization costs is strongly influenced by temperature conditions and represents a key factor for the predictability of grid balancing requirements. While moderate temperature ranges are generally associated with lower average costs, they do not eliminate uncertainty, as occasional price spikes still occur. Temperature extremes amplify this uncertainty substantially by combining higher cost levels with broader price dispersion. Overall, the results highlight that variability, rather than average cost levels alone, is critical for understanding how reliably grid stabilization costs can be anticipated under different temperature conditions.
-
-### Relationship between grid stress and stabilization costs
-This section analyses the relationship between grid stress and stabilization costs, focusing on whether higher activation levels of secondary control energy are systematically associated with increased costs. The analysis aims to identify patterns in cost levels and price variability that emerge under elevated grid stress conditions.
-
-```{r fig-sec-energy-vs-costs, fig.cap="Figure 10. Relationship between secondary control energy deployment and stabilization costs. The scatter plot illustrates how increasing deployment of secondary control energy is associated with higher and more volatile control energy prices, indicating rising cost pressure under elevated grid stress conditions.", echo=FALSE}
+### Relationship between grid stress and price of secondary control energy
+```{r fig-sec-energy-vs-costs, fig.cap="Figure 7. Relationship between secondary control energy deployment and stabilization costs.", echo=FALSE}
 
 # Visualize the association between energy activation and price.
 ggplot(df,
@@ -487,12 +390,13 @@ ggplot(df,
   )
 ```
 
+The scatter plot illustrates the relationship between the deployment of positive secondary control energy (grid stress) and the corresponding balancing price. Each point represents one day, showing how prices respond to different levels of activation.
 
-The scatter plot illustrates the relationship between the amount of activated secondary control energy on the x-axis and the corresponding control energy prices on the y-axis. Each point represents an individual day, while the color scale further reflects the magnitude of secondary control energy deployment. Overall, prices show a wide dispersion across different degrees of grid stress. Under low grid stress, prices are largely concentrated at lower levels, whereas higher deployment of secondary control energy is associated with both higher prices and substantially increased price dispersion.
+A positive relationship is visible: as secondary control energy deployment increases, prices tend to rise. At low activation levels (below roughly 3–4 MW), prices are generally concentrated at lower values with relatively limited dispersion. However, as activation increases, the spread of prices becomes much wider, and high-price observations occur more frequently.
 
-Notably, very high price values occur predominantly during periods of strong secondary control energy deployment. This suggests that phases of elevated grid stress are not only linked to higher average stabilization costs but also to increased cost uncertainty. At the same time, the distribution indicates that a high level of control energy deployment does not inevitably result in high prices, as similar stress situations can be associated with markedly different price outcomes.
+Importantly, the relationship is not perfectly linear. While higher activation increases the likelihood of elevated prices, similar levels of grid stress can still correspond to different price outcomes. This indicates that although grid stress is a key driver of cost pressure, short-term market conditions also influence final price levels.
 
-Overall, the analysis indicates a positive but non-linear relationship between grid stress and stabilization costs. Increased deployment of secondary control energy raises the likelihood of elevated and volatile prices, while the actual cost impact remains highly dependent on short-term system conditions and market dynamics. Consequently, secondary control energy deployment serves as a key indicator of potential cost pressure rather than a direct predictor of stabilization costs.
+Overall, the figure suggests that elevated balancing effort is associated with both higher average prices and greater price volatility, highlighting how operational stress translates into economic risk.
 
 ## Realized Stabilization Cost and Nonlinear Risk Thresholds
 
