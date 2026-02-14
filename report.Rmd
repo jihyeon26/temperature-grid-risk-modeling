@@ -1,0 +1,855 @@
+---
+title: "Weather Effects on Electricity Demand and Grid Stability in Switzerland (2020–2024)"
+author: "Choung Jihyeon, Perera Stefni"
+date: "`r format(Sys.Date(), '%Y-%m-%d')`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    toc_float:
+      collapsed: false
+      smooth_scroll: true
+    number_sections: true
+    theme: flatly
+    code_folding: hide
+    df_print: paged
+    css: styles.css
+---
+```{r R-setup, include = FALSE}
+# Packages
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(lubridate)
+library(forecast)
+library(plotly)
+library(knitr)
+library(kableExtra)
+
+# Global chunk options
+knitr::opts_chunk$set(
+  echo = FALSE,       
+  message = FALSE,
+  warning = FALSE,
+  fig.width = 8,
+  fig.height = 4.5,
+  cache = FALSE     
+)
+
+```
+
+```{r ReadInOfData}
+
+# Load data
+energy_data <- readRDS("./data/Daily_Energy_Consumption2.rds")
+temp_data <- readRDS("./data/daily_mean_temp.rds")
+
+
+```
+
+```{r data-check, include=FALSE}
+# For data check
+head(df)
+sum(is.na(df))
+```
+
+
+# Executive Summary
+
+This report examines how temperature variations relate to electricity demand, grid stress, and stabilization costs in Switzerland using daily data from 2020 to 2024. By integrating national temperature averages with Swissgrid electricity consumption and balancing market indicators, the analysis explores how weather-related demand patterns interact with system flexibility and economic outcomes under extreme conditions.
+
+Exploratory analysis reveals a strong inverse relationship between temperature and electricity demand, with demand increasing during colder periods. After removing weekday-driven cyclical patterns, temperature remains a central explanatory variable, accounting for nearly 70% of short-term demand variability. Seasonal trends further confirm synchronized temperature–demand dynamics in total daily electricity demand.
+
+Grid stress and stabilization costs are analysed across temperature conditions using positive secondary control energy and secondary control energy prices as proxies, focusing on differences in average levels and variability across temperature categories. Additionally, balancing energy prices respond steeply once demand exceeds approximately 2,100 MW, signaling supply inelasticity and heightened system stress.
+
+Building on these findings, two predictive models are developed. A linear regression estimates the sensitivity of demand to temperature, while a logistic regression assesses the probability of entering a critical load regime. The results suggest that temperature declines near freezing levels are associated with disproportionately higher probabilities of system stress.
+
+An operational scenario based on a −7°C forecast illustrates the combined impact of extreme weather conditions. Demand is projected to exceed the critical threshold, the probability of system stress surpasses 90%, and stabilization costs are expected to surge sharply.
+
+In addition, an interactive analysis further examines the relationship between grid stress and stabilization costs at the observation level using positive secondary control energy and secondary control energy prices as proxies.
+
+Overall, the analysis highlights the importance of incorporating temperature-sensitive demand forecasting into threshold-based risk monitoring. Linking demand dynamics with stabilization behavior supports improved anticipation of high-stress regimes during extreme weather conditions.
+
+---
+
+# Data Foundation
+
+This section introduces the data used throughout the analysis. To explore how temperature, electricity demand, and grid stabilization are connected, we combine national electricity system data from Swissgrid with temperature observations from MeteoSwiss. After aligning and aggregating the datasets to a common daily level, we obtain a consistent time series covering 2020–2024. This dataset forms the basis for examining demand patterns, balancing activity, and the resulting economic impacts under different system conditions.
+
+## Data sources and coverage
+We combine two daily datasets covering the period 2020–2024: (1) electricity system data from Swissgrid and (2) national temperature data derived from MeteoSwiss station observations.
+
+Swissgrid data were originally provided at a 15-minute resolution. From these files, we selected the relevant time-series variables, including total electricity consumption in the Swiss control block, positive secondary control energy volumes, and corresponding control energy prices. The yearly datasets (2020–2024) were concatenated and aggregated to daily values to ensure consistency with the weather data.
+
+Weather data were obtained from MeteoSwiss daily observations across all meteorological stations in Switzerland. Station-level temperature records were merged, and a national daily mean temperature was computed by averaging across all stations for each day.
+
+The resulting dataset consists of daily observations for 2020–2024 and forms the basis for analyzing temperature–demand relationships, critical load risk, and balancing-related economic impacts.
+
+## Data integration (Join) and feature engineering
+```{r data-join, include=TRUE, echo=TRUE}
+# Data join : align temperature and demand on the same daily date index
+df <- inner_join(temp_data, energy_data, by = "date") %>%
+  arrange(date) %>%
+  rename(
+    temperature     = mean_temp,
+    energy_mw        = avg_mw,
+    sec_energy_mw    = pos_sec_energy,
+    sec_energy_price = pos_sec_price
+  ) 
+
+# Preview of the data
+head(df)
+```
+
+The two datasets were integrated using a date-based inner join, resulting in a unified daily time series containing temperature, electricity demand, and balancing-related variables.
+
+The main variables used in the analysis are:
+
+- temperature: national daily mean temperature (°C)
+
+- energy_mw: daily electricity demand in the Swiss control block (MW)
+
+- sec_energy_mw: positive secondary control energy volume (MW)
+
+- sec_energy_price: secondary control energy price (EUR/MWh)
+
+Positive secondary control energy represents balancing power activated by the transmission system operator to maintain grid frequency in real time when supply and demand deviate. Higher volumes of secondary control energy typically indicate increased system stress and reduced operational flexibility. In this analysis, secondary control energy is therefore used as a proxy for grid stabilization activity under high-load conditions.
+
+The associated control energy price reflects the market cost of procuring balancing power, capturing the economic impact of stabilization actions during periods of system stress.
+
+---
+
+# Exploratory Analysis: Temperature–Demand Patterns
+
+This section explores the relationship between temperature and electricity demand before moving to the stabilization and risk analysis. By examining seasonal patterns and daily-level observations, we aim to understand how strongly temperature shapes overall demand dynamics.
+
+## Analytical Objectives and Hypotheses
+
+This analysis aims to examine how temperature variations relate to electricity demand and stabilization costs within the Swiss electricity system. We hypothesize that
+
+- Lower temperatures are associated with higher electricity demand.
+
+- Stabilization costs increase nonlinearly under extreme temperature regimes.
+
+- There exists a critical demand threshold beyond which balancing prices and economic risk escalate disproportionately.
+
+These hypotheses structure the subsequent exploratory and modeling analysis.
+
+## Macro trend (2022–2024)
+
+We begin the exploratory analysis by examining the macro-level seasonal dynamics between temperature and electricity demand to establish an overall understanding of their co-movement over time.
+
+```{r fig-trend, fig.cap="Figure 1. Seasonal co-movement between temperature and electricity demand in Switzerland (2022–2024). Smoothed trends show a strong inverse seasonal pattern."}
+# Switzerland Energy Demand vs. Temperature
+
+# Filter data for the recent 3-year period (2022-2024)
+df_3years <- df %>% 
+  filter(year(date) %in% c(2022, 2023, 2024))
+
+# Recalculate scaling parameters to align dual axes for the filtered subset
+# These parameters map temperature range to consumption range for visual comparison
+min_c <- min(df_3years$energy_mw, na.rm = TRUE)
+max_c <- max(df_3years$energy_mw, na.rm = TRUE)
+min_t <- min(df_3years$temperature, na.rm = TRUE)
+max_t <- max(df_3years$temperature, na.rm = TRUE)
+
+# Calculate scale factor and intercept (shift) for linear transformation
+scale_factor_3y <- (max_c - min_c) / (max_t - min_t)
+shift_3y <- min_c - (min_t * scale_factor_3y)
+
+# Visualization: Temperature vs. Electricity consumption
+p_trend_3y <- ggplot(df_3years, aes(x = date)) +
+  geom_line(aes(y = energy_mw), color = "steelblue", alpha = 0.3) +
+  geom_line(aes(y = temperature * scale_factor_3y + shift_3y), 
+            color = "firebrick", alpha = 0.3) +
+  
+  # Add trend lines
+  geom_smooth(aes(y = energy_mw, color = "Electricity Demand"),
+              method = "gam", span = 0.1, se = FALSE, size = 1.2) +
+  
+  geom_smooth(aes(y = temperature * scale_factor_3y + shift_3y, color = "Temperature"), 
+              method = "gam", span = 0.1, se = FALSE, size = 1.2) +
+  
+  # Configure dual Y-axes: Primary for Consumption (MW), Secondary for Temperature (°C)
+  scale_y_continuous(
+    name = "Electricity Consumption (MW)",
+    # Reverse the transformation for the secondary axis display
+    sec.axis = sec_axis(~ (. - shift_3y) / scale_factor_3y, name = "Temperature (°C)")
+  ) +
+  
+  # Apply consistent color palette for clarity
+  scale_color_manual(values = c("Electricity Demand" = "steelblue", "Temperature" = "firebrick")) +
+  
+  # Formatting labels and theme
+  theme_minimal() +
+  labs(x = "Year")
+
+
+p_trend_3y
+
+
+```
+
+Figure 1 highlights the macro-level seasonal dynamics between temperature and electricity demand over the 2022–2024 period. The out-of-phase movement of the two series indicates that colder months consistently correspond to higher electricity demand, while warmer months are associated with lower load levels. This pronounced seasonal structure suggests that temperature plays a central role in shaping aggregate electricity consumption patterns.
+
+## Raw temperature–demand relationship
+
+While the macro trend highlights strong seasonal co-movement, it does not directly quantify the relationship between temperature and daily demand levels. To further explore this association at the observation level, we next examine the raw temperature–demand relationship using a scatter plot.
+
+```{r fig-raw, fig.cap="Figure 2. Raw temperature–demand relationship (daily data, 2020–2024)."}
+# Visualize raw relationship between temperature and demand
+p_raw <- ggplot(df, aes(x = temperature, y = energy_mw)) +
+  geom_point(color = "#3498db", alpha = 0.4) +
+  geom_smooth(method = "gam", color = "#2c3e50") +
+  theme_minimal() +
+  labs(
+    x = "Mean Temperature (°C)",
+    y = "Electricity Demand (MW)"
+  )
+p_raw
+```
+The smooth curve indicates that demand rises sharply as temperature drops below approximately 0°C, although the raw data still contains substantial weekday-driven variability.
+
+## Weekday-adjusted temperature–demand relationship
+
+The raw relationship suggests a clear inverse association between temperature and demand. However, electricity consumption also exhibits strong weekly cyclical patterns that may obscure the underlying weather-driven effect. To isolate the temperature impact more precisely, we apply STL decomposition to remove weekday seasonality and analyze the adjusted demand series.
+
+<details>
+<summary><strong>STL decomposition (weekday pattern removal)</strong></summary>
+```{r weekday-adjustment, fig.cap="Figure 3. STL decomposition of daily electricity demand (weekly frequency = 7)"}
+# Construct daily time series (weekly seasonal cycle)
+energy_ts <- ts(df$energy_mw, frequency = 7)
+
+# Apply STL decomposition to isolate weekday seasonality
+decomp <- stl(energy_ts, s.window = "periodic", robust = TRUE)
+
+# Plot decomposition
+plot(decomp, col = "#2c3e50")
+
+# Remove seasonal component (weekday-adjusted demand)
+df <- df %>%
+  mutate(energy_adjusted = as.numeric(seasadj(decomp)))
+```
+The plot shows the observed series and its decomposition into trend, weekly seasonal pattern, and remainder. We use the seasonally adjusted series (observed minus weekly seasonal component) as energy_adjusted.
+</details>
+
+```{r fig-adj, fig.cap="Figure 4. Weekday-adjusted temperature–demand relationship after STL decomposition (weekly cycle removed)."}
+# Visualize temperature sensitivity after removing weekday seasonality
+p_adj <- ggplot(df, aes(x = temperature, y = energy_adjusted)) +
+  geom_point(color = "#e67e22", alpha = 0.4) +
+  geom_smooth(method = "gam", color = "#c0392b", linewidth = 1.1) +
+  theme_minimal() +
+  labs(
+    x = "Mean Temperature (°C)",
+    y = "Weekday-Adjusted Demand (MW)"
+  )
+p_adj
+```
+Even after removing weekday-driven fluctuations, a strong inverse relationship between temperature and electricity demand remains clearly visible. This indicates that the observed weather–load pattern is not driven by regular weekly cycles but reflects a fundamental temperature-dependent demand response.
+
+## Demand regimes by temperature
+After removing weekday-related fluctuations, the temperature–demand relationship remains strong and nonlinear. To further investigate how demand behaves across different temperature regimes and to identify potential threshold effects, we group observations into temperature bins and analyze average demand levels within each range.
+
+```{r fig-bin, fig.cap="Figure 5. Average electricity demand across temperature regimes using coarse (5°C) and refined (2°C) binning. The refined bins highlight a sharp increase in demand at low temperatures, suggesting a cold-weather threshold where load begins to accelerate rapidly.", fig.show='hold', out.width='48%'}
+
+# Coarse binning (5°C)
+bins_5c <- df %>%
+  mutate(temp_bin_5c = cut(temperature, breaks = seq(-10, 25, by = 5), include.lowest = TRUE)) %>%
+  group_by(temp_bin_5c) %>%
+  summarise(
+    avg_mw = mean(energy_mw, na.rm = TRUE),
+    max_mw = max(energy_mw, na.rm = TRUE),
+    n = n(),
+    .groups = "drop"
+  ) %>%
+  filter(!is.na(temp_bin_5c))
+
+p_bins_5c <- ggplot(bins_5c, aes(x = temp_bin_5c, y = avg_mw, fill = avg_mw)) +
+  geom_col(show.legend = FALSE) +
+  scale_fill_gradient(low = "#3498db", high = "#e74c3c") +
+  theme_minimal() +
+  labs(
+    x = "Temperature Range (°C)",
+    y = "Average Demand (MW)"
+  )
+
+p_bins_5c
+
+# Refined binning (2°C) in cold range
+bins_2c <- df %>%
+  filter(between(temperature, -10, 10)) %>%
+  mutate(temp_bin_2c = cut(temperature, breaks = seq(-10, 10, by = 2), include.lowest = TRUE)) %>%
+  group_by(temp_bin_2c) %>%
+  summarise(avg_mw = mean(energy_mw, na.rm = TRUE), .groups = "drop") %>%
+  filter(!is.na(temp_bin_2c))
+
+p_bins_2c <- ggplot(bins_2c, aes(x = temp_bin_2c, y = avg_mw, fill = avg_mw)) +
+  geom_col(show.legend = FALSE) +
+  scale_fill_gradient(low = "#7A89C2", high = "#e74c3c") +
+  theme_minimal() +
+  labs(
+    x = "Temperature Range (°C)",
+    y = "Average Demand (MW)"
+  )
+
+p_bins_2c
+```
+
+To translate the continuous temperature–demand relationship into operationally interpretable regimes, we summarize average demand by temperature bins. While the 5°C bins provide a broad overview of declining demand as temperature increases, the refined 2°C bins reveal a much sharper demand surge at low temperatures. This pattern suggests the presence of a critical cold-weather threshold where load begins to increase rapidly.
+
+---
+
+# Grid Stability & Economic Risk Signals
+Beyond the analysis of electricity demand, it is important to consider how the power system responds operationally under different conditions. In particular, extreme weather situations may require additional interventions to maintain grid stability, thereby affecting both operational effort and associated costs.
+
+This chapter provides a transition from a demand-focused perspective to an examination of system-level responses of the electricity grid. The following sections examine different aspects of grid stabilization and associated costs.
+
+## Price Dynamics under Temperature and Load Stress
+
+This section examines how grid stress varies across different temperature conditions. 
+Grid stress is not measured directly but is proxied by the activation of positive secondary control energy, which reflects the balancing effort required to maintain system stability. 
+In addition, secondary control energy prices are analyzed as an economic indicator of stabilization costs.
+
+To ensure comparability across the individual sub-sections, temperature values are grouped into fixed intervals that are applied consistently throughout this chapter. 
+These temperature categories form the common structural basis for all subsequent analyses, while their specific implications for grid stress and stabilization costs are discussed in the respective sub-sections.
+
+
+```{r temperature-intervals, echo=FALSE, message=FALSE, warning=FALSE}
+# Create temperature intervals (categorical variable)
+df <- df %>%
+  mutate(
+    temp_categorie = cut(
+      temperature,
+      breaks = c(-Inf, -10, 0, 10, 20, 30, Inf),
+      include.lowest = TRUE
+    )
+  )
+```
+
+
+```{r temperature_intervals_output, echo=FALSE, results='asis'}
+cat("
+<details>
+<summary><strong>Temperature Intervals</strong></summary>
+<br>
+")
+
+# Display temperature interval labels for reporting purposes
+knitr::kable(
+  data.frame(
+    Temperature_Intervals = c(
+      "< −10 °C",
+      "−10 to 0 °C",
+      "0 to 10 °C",
+      "10 to 20 °C",
+      "20 to 30 °C",
+      "> 30 °C"
+    )
+  )
+)
+
+cat("</details>")
+```
+
+### Mean grid stress across temperature categories
+
+The mean level of grid stress is examined across predefined temperature categories using the average activation of positive secondary control energy. As outlined in the introductory section, temperature values are grouped into fixed intervals ranging from very cold conditions below −10 °C to warm conditions between 20 °C and 30 °C. Each category therefore represents a distinct temperature range under which the balancing effort of the power system is evaluated.
+
+
+```{r fig-mean-grid-stress, echo = FALSE, fig.cap = "Figure 6. Mean grid stress across temperature categories. Average activation of positive secondary control energy varies across temperature ranges, with higher mean values during cold conditions and lower activation levels at moderate temperatures."}
+
+# Analyze how average grid stress varies across temperature intervals
+df %>%
+  group_by(temp_categorie) %>%
+  summarise(
+    mean_sec_energy = mean(sec_energy_mw, na.rm = TRUE)
+  ) %>%
+  ggplot(aes(x = temp_categorie,
+             y = mean_sec_energy,
+             fill = temp_categorie)) +
+  geom_col() +
+  theme_bw() +
+  labs(
+    x = "Temperature categories (°C)",
+    y = "Mean secondary control energy (MW)"
+  )
+```
+
+
+The bar chart illustrates clear differences in average secondary control energy activation across the temperature ranges. The highest mean values are observed during cold temperature conditions, particularly in the range between −10 °C and 0 °C, indicating increased balancing requirements under cold weather conditions. In contrast, moderate temperatures between 10 °C and 20 °C are associated with the lowest average activation levels, suggesting comparatively stable operating conditions for the electricity grid.
+
+At warmer temperatures between 20 °C and 30 °C, the mean activation of secondary control energy increases again, though not to the same extent as during cold conditions. This pattern indicates that both cold and warm temperature ranges are associated with elevated grid stress, while moderate temperatures correspond to lower average balancing effort.
+
+### Variability of grid stress across temperature categories
+
+This analysis highlights how strongly grid stress fluctuates within each temperature range.
+Variability captures the extent to which secondary control energy activation deviates from typical levels and thus reflects the stability of grid balancing requirements. In this context, higher variability indicates a broader spread of values and, in some temperature ranges, a greater occurrence of extreme grid stress events.
+
+```{r fig-sec-energy-variability, echo = FALSE, fig.cap = "Figure 7. Variability of secondary control energy across temperature categories. The boxplots show how strongly grid stress fluctuates within each temperature range, highlighting differences in the spread and occurrence of extreme values."}
+
+# Compare secondary control energy variability across temperature intervals.
+ggplot(df,
+       aes(x = temp_categorie,
+           y = sec_energy_mw,
+           fill = temp_categorie)) +
+  geom_boxplot() +
+  theme_bw() +
+  labs(
+    x = "Temperature categories (°C)",
+    y = "Secondary control energy (MW)"
+  )
+```
+
+
+For −10 to 0 °C, the spread is relatively high. The box is clearly pronounced and the whiskers extend far upward, indicating noticeable variability. Only two outliers above the upper whisker are visible. These two points represent individual days with unusually high activation, meaning substantially more balancing was required than is typical for this category.
+
+For 0 to 10 °C, the median is lower than in −10 to 0 °C, but variability remains clearly visible. A key feature is the large number of outliers above the upper whisker. These points form a vertical sequence reaching well above 10 MW. This indicates that while many days fall within a moderate range, this category repeatedly includes days with strong spikes in balancing requirements.
+
+For 10 to 20 °C, the box is the smallest and the whiskers are shorter. This suggests the lowest variability and thus the most stable conditions among the shown categories. At the same time, several outliers above the upper whisker are still visible. These outliers show that occasional peaks can occur even under moderate temperatures, although the typical range is much more stable overall.
+
+For 20 to 30 °C, the spread increases again compared to the moderate temperature range. The box is taller than in the 10 to 20 °C category and the whiskers extend further, indicating renewed fluctuations in balancing activation. At the same time, no outliers are observed in this temperature category, meaning that the observed variability arises from a generally wider distribution.
+
+Overall, the variability of secondary control energy differs clearly across temperature categories. Cold and cool temperature ranges show more volatile balancing behavior, while moderate temperatures between 10 and 20 °C are associated with the most stable grid conditions. At warmer temperatures, variability increases again, indicating renewed fluctuations in grid stress without pronounced extreme events.
+
+### Mean stabilization costs across temperature categories
+This section examines how average stabilization costs vary across different temperature conditions using mean secondary control energy prices as an economic indicator.
+
+
+
+```{r fig-mean-stabilization-costs, fig.cap="Figure 8. Mean secondary control energy prices across temperature categories. Average prices are lowest at moderate temperatures and increase during both cold and warm conditions."}
+# Compare mean secondary control energy prices across temperature intervals.
+df %>%
+  group_by(temp_categorie) %>%
+  summarise(mean_price = mean(sec_energy_price, na.rm = TRUE)) %>%
+  ggplot(aes(x = temp_categorie,
+             y = mean_price,
+             fill = temp_categorie)) +
+  geom_col() +
+  theme_bw() +
+  labs(
+    x = "Temperature categories (°C)",
+    y = "Mean secondary control energy price (EUR/MWh)"
+  )
+```
+
+
+The bar chart shows clear differences in mean secondary control energy prices across the temperature ranges. The highest average prices are observed at warm temperatures between 20 °C and 30 °C, indicating increased stabilization costs under high-temperature conditions. Elevated mean prices are also visible during cold temperature ranges below 0 °C, suggesting that grid stabilization is comparatively expensive during cold weather periods as well.
+
+In contrast, moderate temperature ranges between 0 °C and 20 °C are associated with lower average secondary control energy prices. In particular, the lowest mean prices occur in the range between 0 °C and 10 °C, indicating comparatively cost-efficient grid operation under mild temperature conditions.
+
+Overall, the results indicate that average stabilization costs are lowest within the moderate temperature range between 0 °C and 20 °C and increase during both cold conditions below 0 °C and warm conditions between 20 °C and 30 °C. This pattern suggests that economic pressure on grid stabilization is elevated under temperature extremes, while moderate temperature ranges are associated with lower average balancing costs.
+
+### Variability of stabilization costs across temperature categories
+This analysis examines how strongly grid stabilization costs fluctuate across different temperature ranges. Variability in secondary control energy prices reflects the stability of balancing costs and indicates how predictable or volatile grid stabilization becomes under varying temperature conditions. In this context, higher variability corresponds to a broader dispersion of prices and increased uncertainty in stabilization costs.
+
+```{r fig-sec-energy-price-variability, echo = FALSE, fig.cap = "Figure 9. Variability of secondary control energy prices across temperature categories. The boxplots illustrate how secondary control energy prices vary within each temperature range. Differences in dispersion and the presence of extreme values indicate varying price volatility under different temperature conditions."}
+
+# Compare price variability across temperature intervals.
+ggplot(df,
+       aes(x = temp_categorie,
+           y = sec_energy_price,
+           fill = temp_categorie)) +
+  geom_boxplot() +
+  theme_bw() +
+  theme(plot.title = element_text(face = "bold")) +
+  labs(x = "Temperature categories (°C)",
+    y = "Secondary control energy price (EUR)"
+  )
+
+```
+
+
+For −10 to 0 °C, the variability of secondary control energy prices is relatively high. The box is clearly pronounced and the whiskers extend far upward, indicating substantial fluctuations in stabilization costs. Only one outlier above the upper whisker is visible, representing a single day with exceptionally high prices and thus unusually elevated grid stabilization costs under cold conditions.
+
+For 0 to 10 °C, the median price is lower than in the coldest category, while variability remains clearly visible. The distribution shows a broad spread and several outliers above the upper whisker. This indicates that although stabilization costs are often moderate in this temperature range, repeated price spikes can occur.
+
+For 10 to 20 °C, the box is comparatively small and the whiskers are shorter, indicating a relatively narrow typical price range. However, this category shows a large number of outliers above the upper whisker, forming a dense vertical sequence of high price values. This suggests that while most stabilization costs remain within a stable central band, cost spikes occur frequently and can be reducing overall cost predictability in this temperature range.
+
+For 20 to 30 °C, variability in secondary control energy prices remains clearly visible. The box is relatively pronounced, indicating noticeable dispersion in stabilization costs within this temperature range. No outliers above the upper whisker are visible, suggesting that price variability under warm temperature conditions is driven by differences within the typical price range.
+
+The findings demonstrate that the variability of stabilization costs is strongly influenced by temperature conditions and represents a key factor for the predictability of grid balancing requirements. While moderate temperature ranges are generally associated with lower average costs, they do not eliminate uncertainty, as occasional price spikes still occur. Temperature extremes amplify this uncertainty substantially by combining higher cost levels with broader price dispersion. Overall, the results highlight that variability, rather than average cost levels alone, is critical for understanding how reliably grid stabilization costs can be anticipated under different temperature conditions.
+
+### Relationship between grid stress and stabilization costs
+This section analyses the relationship between grid stress and stabilization costs, focusing on whether higher activation levels of secondary control energy are systematically associated with increased costs. The analysis aims to identify patterns in cost levels and price variability that emerge under elevated grid stress conditions.
+
+```{r fig-sec-energy-vs-costs, fig.cap="Figure 10. Relationship between secondary control energy deployment and stabilization costs. The scatter plot illustrates how increasing deployment of secondary control energy is associated with higher and more volatile control energy prices, indicating rising cost pressure under elevated grid stress conditions.", echo=FALSE}
+
+# Visualize the association between energy activation and price.
+ggplot(df,
+       aes(x = sec_energy_mw,
+           y = sec_energy_price,
+           color = sec_energy_mw)) +
+  geom_point(size = 1) +
+  theme_bw() +
+  theme(plot.title = element_text(face = "bold")) +
+  labs(x = "Secondary control energy (MW)",
+    y = "Secondary control energy price (EUR)"
+  )
+```
+
+
+The scatter plot illustrates the relationship between the amount of activated secondary control energy on the x-axis and the corresponding control energy prices on the y-axis. Each point represents an individual day, while the color scale further reflects the magnitude of secondary control energy deployment. Overall, prices show a wide dispersion across different degrees of grid stress. Under low grid stress, prices are largely concentrated at lower levels, whereas higher deployment of secondary control energy is associated with both higher prices and substantially increased price dispersion.
+
+Notably, very high price values occur predominantly during periods of strong secondary control energy deployment. This suggests that phases of elevated grid stress are not only linked to higher average stabilization costs but also to increased cost uncertainty. At the same time, the distribution indicates that a high level of control energy deployment does not inevitably result in high prices, as similar stress situations can be associated with markedly different price outcomes.
+
+Overall, the analysis indicates a positive but non-linear relationship between grid stress and stabilization costs. Increased deployment of secondary control energy raises the likelihood of elevated and volatile prices, while the actual cost impact remains highly dependent on short-term system conditions and market dynamics. Consequently, secondary control energy deployment serves as a key indicator of potential cost pressure rather than a direct predictor of stabilization costs.
+
+## Realized Stabilization Cost and Nonlinear Risk Thresholds
+
+While Section 4.1 analyzed secondary control energy prices as market signals of system stress, this section shifts the focus from price dynamics to realized economic exposure. By combining control energy prices with actual activation volumes, we quantify the effective stabilization costs incurred under different temperature and load regimes.
+
+**Stabilization Cost = Secondary Control Energy × Control Energy Price**
+
+```{r stabilization-cost, include=TRUE, echo=TRUE}
+# Create a new column for realized stabilization cost (MW × price).
+df <- df %>%
+  mutate(
+    stabilization_cost = sec_energy_mw * sec_energy_price,
+  )
+```
+
+This proxy captures the economic magnitude of balancing actions associated with grid stress.
+
+### Temperature-driven cost escalation
+
+```{r fig-cost-bin, fig.cap="Figure 11. Stabilization cost response across temperature regimes (2°C bins).Average daily stabilization costs exhibit a pronounced U-shaped pattern, with sharp cost escalation during extreme cold conditions and secondary increases at high summer temperatures."}
+
+# Bin temperature in 2°C intervals and mark extreme ranges as spikes.
+df_cost_bin <- df %>%
+  mutate(temp_bin_2c = cut(temperature, breaks = seq(-10, 24, by = 2), include.lowest = TRUE)) %>%
+  mutate(highlight = ifelse(temperature <= -6 | temperature > 20, "Spike", "Normal"))
+
+# Visualize average stabilization costs by temperature bin with spike highlighting.
+p_cost_spike <- ggplot(df_cost_bin, aes(x = temp_bin_2c, y = stabilization_cost, fill = highlight)) +
+  stat_summary(geom = "bar", fun = "mean", show.legend = FALSE) + 
+  scale_fill_manual(values = c("Normal" = "grey70", "Spike" = "#e74c3c")) + 
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+  labs(
+    x = "Temperature Bin (°C)",
+    y = "Stabilization Cost (EUR)"
+  )
+
+p_cost_spike
+```
+The U-shaped pattern indicates that stabilization costs are lowest within moderate temperature ranges and increase toward both cold and warm extremes. However, the escalation is not symmetric. The sharp increase observed below approximately −6°C suggests a nonlinear amplification effect, where additional temperature decreases lead to disproportionately higher balancing costs. This reinforces the interpretation that extreme cold conditions place structural pressure on system flexibility, triggering elevated activation volumes and price effects simultaneously.
+
+In contrast, while high summer temperatures are also associated with rising costs, the slope of increase appears less abrupt than in the extreme cold regime. This asymmetry indicates that cold-driven demand spikes exert stronger stress on the balancing system compared to heat-driven effects within the observed period.
+
+Overall, the figure highlights that stabilization cost risk is not evenly distributed across temperature ranges but concentrates around identifiable stress regimes, supporting the threshold-based operational framework introduced in this section.
+
+### Demand-driven price escalation
+
+To examine whether high system load amplifies balancing price pressure, we analyze the relationship between total electricity demand and secondary control energy prices.
+
+```{r fig-threshold, fig.cap = "Figure 12. Relationship between electricity demand and secondary control energy prices.Prices remain relatively stable at moderate demand levels but increase sharply beyond high-load regimes, indicating supply inelasticity under system stress."}
+
+# Visualize how electricity demand relates to control energy prices under varying temperatures.
+p_price_load <- ggplot(df, aes(x = energy_mw, y = sec_energy_price, color = temperature)) +
+  geom_point(alpha = 0.6, size = 2) +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 10), color = "black", linewidth = 1.1) +
+  scale_color_gradientn(colors = c("#2c3e50", "#3498db", "#e74c3c"), name = "Temp (°C)") +
+  theme_minimal() +
+  labs(
+    x = "Total Electricity Demand (MW)",
+    y = "Secondary Control Energy Price (EUR/MWh)",
+    color = "Temp (°C)"
+  )
+
+p_price_load
+```
+The relationship between total electricity demand and secondary control energy prices shows a clear nonlinear pattern. At moderate demand levels, prices remain relatively stable, suggesting that the system has sufficient balancing capacity and operational flexibility.
+
+However, as demand approaches and exceeds roughly 2,100 MW, the pattern changes. Prices begin to rise more rapidly and become more dispersed. This indicates tightening reserve margins and reduced market flexibility under high-load conditions.
+
+Colder temperature observations (shown as darker blue points) are concentrated in this high-demand region. This reinforces the link between temperature-driven load increases and upward pressure on balancing prices.
+
+The observed inflection around 2,100 MW provides the empirical basis for defining this level as a critical operational threshold. While it does not represent a hard physical limit, it marks the transition from stable operating conditions to a more stress-sensitive regime, where additional demand leads to disproportionately larger price responses.
+
+### Operational risk threshold definition
+The nonlinear price pattern shown in Figure 12 provides the empirical basis for defining a critical load threshold. We set 2,100 MW as the boundary for high-load conditions in the subsequent modeling. While this value is not a strict physical system limit, it marks the point where price behavior shifts from relatively stable to clearly stress-sensitive.
+
+To capture this shift, we construct a binary indicator that distinguishes between demand levels below and above 2,100 MW. This transforms the observed nonlinear price response into a clear risk-state variable that can be used in predictive analysis.
+
+```{r threshold, include=TRUE, echo=TRUE, class.source = "fold-show"}
+# Create a binary indicator for critical load conditions based on a predefined demand threshold (≥ 2100 MW).
+df <- df %>%
+  mutate(
+    is_critical = ifelse(energy_mw >= 2100, 1, 0)
+  )
+```
+
+Ideally, the definition of a critical load threshold would rely on internal reserve margin or system constraint data from the transmission operator. Since such detailed operational data are not publicly available, the empirically identified 2,100 MW level serves as a transparent, data-driven proxy for high-risk conditions.
+
+This approach connects the descriptive price analysis with the predictive risk model, allowing clearer monitoring of when stabilization costs begin to escalate disproportionately.
+
+---
+
+# Predictive Modeling & Operational Simulation
+Having identified clear nonlinear cost patterns and a critical load threshold, we now turn to predictive modeling. The goal is to quantify temperature sensitivity in electricity demand and translate observed patterns into a structured modeling framework. This step allows us to simulate system behavior under different temperature scenarios and assess potential operational risk.
+
+## Model 01: Quantifying Demand Sensitivity
+```{r model-lm, include=TRUE, echo=TRUE}
+# Estimate a linear regression model to assess the effect of temperature on adjusted electricity demand.
+load_model <- lm(energy_adjusted ~ temperature, data = df)
+summary(load_model)
+```
+
+### Model Interpretation
+
+The relationship is modeled as:
+$$D(T) = \alpha + \beta T$$
+Based on the regression results, the fitted model is:
+$$\widehat{D}(T) = 1982.62 - 23.60T$$
+
+where $\widehat{D}(T)$ denotes daily electricity demand and $T$ represents mean daily temperature.
+
+The linear specification provides a clear baseline for measuring average temperature sensitivity. Although the temperature–demand relationship may show some curvature at extreme values, the linear model offers an interpretable first-order approximation of how demand responds to temperature changes. This makes it particularly useful for scenario analysis and threshold forecasting.
+
+The estimated temperature coefficient is −23.6 MW per °C, meaning that a one-degree decrease in temperature is associated with an average increase of approximately 23.6 MW in daily electricity demand. The model explains a substantial share of demand variation (R² = 0.688), indicating that temperature is a major factor of short-term electricity consumption.
+
+### Model Diagnostics
+
+```{r lm-diagnostic, fig.cap="Figure 13. Residual diagnostics for the linear demand model, showing residuals scattered around zero across fitted demand levels."}
+
+# Assess model assumptions by visualizing residuals against fitted values.
+df$residuals <- resid(load_model)
+df$fitted <- fitted(load_model)
+
+ggplot(df, aes(x = fitted, y = residuals)) +
+  geom_point(alpha = 0.4) +
+  geom_smooth(method = "loess", se = FALSE) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  theme_minimal() +
+  labs(
+    x = "Fitted Demand (MW)",
+    y = "Residuals (MW)",
+  )
+
+```
+
+Although slight curvature is visible in the smoothed residual trend, particularly at higher fitted demand levels, the deviations remain moderate. This suggests that while nonlinear effects may exist at temperature extremes, the linear specification captures the dominant variation in demand across most observed conditions.
+
+## Model 02: Probability of Critical Load Events
+
+```{r model-logistic, include=TRUE, echo=TRUE}
+# Model the probability of critical load using temperature as predictor.
+risk_model <- glm(is_critical ~ temperature, data = df, family = binomial)
+summary(risk_model)
+```
+
+To estimate the probability of entering a critical load regime (demand ≥ 2,100 MW), we model the relationship between mean daily temperature ($T$) and event probability ($p$) using logistic regression.
+
+### Model Interpretation
+
+The estimated model is:
+
+$$\ln\left(\frac{p}{1-p}\right) = -1.16214 - 0.48423T$$
+This equation describes how temperature affects the log-odds of a critical load event.
+
+- Intercept ($\beta_0 = -1.162$) : Represents the log-odds of a critical load event at $0^\circ\text{C}$.
+
+- Temperature Coefficient ($\beta_1 = -0.484$) : 
+For each $1^\circ\text{C}$ increase in temperature, the log-odds of a critical event decrease by 0.484.
+
+Odds are multiplied by  
+$$e^{-0.484} \approx 0.62$$
+This corresponds to a 38% reduction in odds per 1°C increase.
+
+
+
+### Probability Representation
+
+For practical interpretation, the model can be written as:
+
+$$p(T) = \frac{1}{1 + e^{-(-1.162 - 0.484T)}}$$
+
+This form directly gives the probability (0–100%) of a critical event at any temperature.
+As temperature decreases, $p(T)$ increases nonlinearly, reflecting rising system stress under cold conditions.
+
+### Operational Risk Levels by Temperature
+
+```{r risk-table}
+# Calculate and present predicted critical load probabilities for representative temperature values.
+# Define representative temperature scenarios for risk evaluation
+temp_values <- c(-5, 0, 5)
+logit_values <- -1.16214 - 0.48423 * temp_values
+prob_values <- 1 / (1 + exp(-logit_values))
+
+# Create summary table with temperature, probability, and qualitative risk level
+risk_df <- data.frame(
+  Temperature = paste0(temp_values, "°C"),
+  Probability = paste0(round(prob_values * 100, 1), "%"),
+  Risk_Level = c("High", "Moderate", "Low")
+)
+
+# Render formatted table for reporting
+risk_df %>%
+  kable(
+    col.names = c("Mean Temperature (T)", "Calculated Probability (p)", "Risk Level"),
+    align = "lll",
+    caption = "Table 1: Probability of Critical Load by Temperature"
+  ) 
+
+```
+
+Table 1 translates the logistic model into actionable risk categories. The results highlight the strong nonlinear sensitivity of system stress to temperature.
+
+At −5°C, the probability of entering a critical load regime approaches 78%, indicating a high likelihood of capacity pressure under severe cold conditions. In contrast, at 5°C, the probability falls below 3%, suggesting minimal operational risk. The sharp increase in probability between 0°C and −5°C reflects the threshold-like behavior captured by the logistic specification.
+
+```{r model-logistic-fig, fig.cap="Figure 14. Predicted probability of entering the critical load regime (demand ≥ 2,100 MW) as a function of temperature."}
+# Predict probability of critical load using the logistic regression model
+temp_grid <- data.frame(temperature = seq(-10, 22, by = 0.5))
+temp_grid$prob_critical <- predict(risk_model, newdata = temp_grid, type = "response")
+
+# Visualize the estimated probability curve across the temperature range
+ggplot(temp_grid, aes(x = temperature, y = prob_critical)) +
+  geom_line(linewidth = 1) +
+  theme_minimal() +
+  labs(
+    x = "Mean Temperature (°C)",
+    y = "P(Critical load: demand ≥ 2,100 MW)"
+  )
+
+```
+
+The predicted probability curve exhibits a pronounced inflection around 0°C. As temperatures fall below freezing, the likelihood of exceeding the 2,100 MW threshold increases rapidly, suggesting an accelerating transition into high-stress operating regimes. 
+
+This nonlinearity is operationally important. While average demand increases gradually as temperatures decline, the probability of crossing the critical threshold accelerates rapidly once temperatures approach freezing levels. This suggests that system preparedness measures should intensify disproportionately during cold spells rather than scaling linearly with forecasted demand.
+
+## Operational scenario: −7°C forecast
+
+To illustrate the practical implications of the modeling framework, we simulate an extreme cold-weather scenario with a forecasted mean temperature of −7°C.
+
+```{r scenario-calc, echo=TRUE}
+# Perform calculations with −7°C
+new_temp <- data.frame(temperature = -7)
+pred_demand <- predict(load_model, new_temp)
+pred_prob   <- predict(risk_model, new_temp, type = "response")
+
+# Create and format the data frame
+scenario_df <- data.frame(
+  temperature = "-7°C",
+  predicted_demand = paste0(round(pred_demand, 1), " MW"),
+  prob_critical = paste0(round(pred_prob * 100, 1), "%")
+)
+
+# Render the table
+scenario_df %>%
+  kable(
+    col.names = c("Temperature", "Predicted Demand", "Probability of Critical Load"),
+    align = "lll", # Left-aligned to match your previous table
+    caption = "Table 2: Scenario Analysis for Extreme Cold Event"
+  ) 
+```
+
+At −7°C, the linear demand sensitivity model predicts a daily electricity demand of approximately 2,148 MW, exceeding the defined critical threshold of 2,100 MW. Simultaneously, the logistic risk model estimates a 90.3% probability of entering the critical load regime. Together, these results indicate that extreme cold conditions are not only associated with higher demand but also with a substantially elevated likelihood of operating in a high-stress system state.
+
+```{r scenario-plot, fig.cap="Figure 15. Scenario sensitivity of demand and critical-load risk across cold temperatures. Vertical line indicates the −7°C forecast scenario.", fig.height = 3}
+
+# Build a cold-range temperature grid and compute model-based demand + risk predictions
+temp_grid <- tibble(temperature = seq(-10, 10, by = 1)) %>%
+  mutate(
+    predicted_demand = as.numeric(predict(load_model, newdata = .)),
+    prob_critical    = as.numeric(predict(risk_model, newdata = ., type = "response")) * 100
+  )
+
+# Map probability onto the demand scale so both series can be plotted with a secondary y-axis
+d_min <- min(temp_grid$predicted_demand, na.rm = TRUE)
+d_max <- max(temp_grid$predicted_demand, na.rm = TRUE)
+
+p_min <- 0
+p_max <- 100
+
+scale_factor <- (d_max - d_min) / (p_max - p_min)
+shift <- d_min
+
+# Plot predicted demand and scaled risk curve vs temperature with dual y-axes
+ggplot(temp_grid, aes(x = temperature)) +
+  geom_line(aes(y = predicted_demand, linetype = "Predicted demand (MW)"), linewidth = 1) +
+  geom_line(aes(y = prob_critical * scale_factor + shift,
+                linetype = "Critical load probability (%)"),
+            linewidth = 1) +
+  geom_vline(xintercept = -7, linetype = "dotted") +
+  scale_y_continuous(
+    name = "Predicted demand (MW)",
+    sec.axis = sec_axis(~ (. - shift) / scale_factor,
+                        name = "Probability of critical load (%)")
+  ) +
+  scale_linetype_manual(
+    values = c("Predicted demand (MW)" = "solid",
+               "Critical load probability (%)" = "dashed"),
+    name = NULL
+  ) +
+  labs(x = "Mean Temperature (°C)") +
+  theme_minimal()
+
+```
+
+Figure 15 illustrates the relationship between total demand and system risk. The linear model provides a steady baseline for how demand increases as temperatures fall. In contrast, the logistic model captures the nonlinear “tipping point” in system stability.
+
+This comparison reveals an important operational insight: while projected demand growth appears gradual and predictable in the linear framework, the probability of entering a critical regime rises sharply around freezing temperatures. As a result, the −7°C scenario represents a high-risk zone. In this range, even small temperature declines can lead to disproportionately large increases in system vulnerability, despite only modest increases in total MW demand.
+
+---
+
+# Chapter of Choice: Interactive exploration of secondary control energy and secondary control prices
+
+This chapter provides an interactive extension of the analysis presented in Chapter 4.1.5, which examined the relationship between the deployment of secondary control energy as a proxy for grid stress and the resulting stabilisation costs. The objective is to explore this relationship at the observation level and reveal patterns that remain hidden in aggregated representations.
+
+```{r fig-interactive-stabilisation-costs, echo=FALSE, out.width="98%",  fig.cap = "Figure 16. Interactive relationship between secondary control energy and secondary control energy prices."}
+
+# Create interactive scatter plot of energy activation and price
+ggplotly(ggplot(df,
+         aes(x=sec_energy_mw, 
+             y=sec_energy_price,
+             color=sec_energy_mw)) +
+  geom_point(size=1,
+             aes(text = paste("sec_energy_mw (MW):", round(sec_energy_mw, 2),
+  "<br>sec_energy_price (EUR):", round(sec_energy_price, 2))))+
+    scale_color_viridis_c() +
+   theme_bw() +
+  theme(plot.title = element_text(face = "bold")) +
+  labs(x = "Secondary control energy (MW)",
+    y = "Secondary control energy price (EUR)"
+  ), tooltip = "text")
+
+```
+
+
+The interactive visualisation enables targeted inspection of individual days and direct comparison of combinations of deployed secondary control energy and associated costs. This shows that similar amounts of secondary control energy can be linked to markedly different stabilisation cost outcomes, highlighting variation that is not apparent in aggregated analyses.
+
+In particular, at moderate to higher deployments of secondary control energy, stabilisation costs exhibit substantial dispersion. The interactive approach allows areas of increased uncertainty to be identified and individual observations with exceptionally high costs to be examined in detail. This demonstrates that high stabilisation costs do not occur exclusively during extreme deployments but can also arise within comparable load situations.
+
+Moreover, the interactive approach supports a more nuanced interpretation of cost risks. By highlighting individual data points, outliers can be identified and assessed in relation to similar deployments of secondary control energy. This indicates that stabilisation costs are not solely determined by the amount of deployed control energy but are strongly influenced by short-term system conditions and market dynamics.
+
+While Chapter 4.1.5 presents aggregated relationships, the interactive approach enables targeted identification of outliers and cost-intensive situations within comparable secondary control energy deployments, thereby extending the analytical insight provided by the static analysis.
+
+---
+
+# Conclusion
+
+This analysis examined how temperature-driven demand patterns interact with grid stabilization and cost dynamics in the Swiss electricity system. While electricity demand increases gradually under colder conditions, system responses in terms of balancing effort and stabilization costs rise nonlinearly once high-load thresholds are approached.
+
+The findings show that rising demand alone does not fully explain periods of elevated costs. Rather, temperature-driven load increases interact with limited system flexibility, resulting in disproportionately higher balancing activity and costs once critical load levels are exceeded. This suggests that operational risk intensifies around identifiable stress thresholds, rather than increasing gradually over time.
+
+Overall, the results highlight the importance of integrating temperature-sensitive demand modeling into stabilization planning. Combining demand forecasts with threshold-based risk monitoring can improve early identification of high-stress conditions and support more informed operational decisions during extreme weather events.
+
+---
+
+# Limitations
+
+This analysis focuses on temperature as the central explanatory variable for electricity demand dynamics. While temperature explains a substantial share of short-term demand variability, the model does not explicitly account for other temporal influences such as calendar effects beyond weekday adjustment, short-term behavioral changes, or exceptional events. As a result, part of the remaining demand variation may reflect factors not captured in the temperature-based framework.
+
+Furthermore, grid stress and stabilization costs are assessed using proxy indicators derived from secondary control energy volumes and prices. While these variables provide a meaningful representation of balancing activity and associated economic pressure, they do not capture all operational dimensions of grid stability. In particular, secondary control energy reflects activated balancing needs but does not directly measure system constraints, reserve availability, or operational decision-making processes within the transmission system.
+
+Finally, the analysis is based on historical observations from 2020–2024 and assumes stable structural relationships over time. Changes in market conditions, system flexibility, or operational strategies may influence future temperature–risk relationships, which limits the direct generalizability of the results beyond the observed period.
+
+---
+
+# Reflection on Using Generative AI
+
+In this project, we used Generative AI as a helpful tool to improve our workflow in R. Our aim was to get AI-generated advice on more efficient methods and to enhance the clarity of our final documentation. It was especially useful for brainstorming ideas for our R Markdown layouts, which helped us expand the visual appeal of our HTML reports.
+
+However, we were careful to validate everything since the tool has its limitations. We found that without enough context, the AI sometimes suggested paths that didn’t align with our specific research goals. Additionally, it occasionally recommended outdated or unsuitable packages, so we made sure to specify the right libraries ourselves to keep our code stable.
+
+To maintain the accuracy of our results, we cross-checked the AI's suggestions with official documentation and tested everything iteratively in RStudio. This experience reinforced that while AI can make coding and formatting in R Markdown easier, the key decisions and final verification still need to rest with the researchers.

@@ -1,0 +1,33 @@
+.figure {
+  font-size: 0.85em;
+  color: #555;
+  font-style: italic;
+  margin-top: 6px;
+}
+
+h1 { 
+  margin-top: 100px; 
+}
+
+h2 { 
+  margin-top: 60px; 
+}
+
+h3 {
+  margin-top: 40px;
+}
+caption {
+  caption-side: bottom;
+  text-align: left;
+  padding-top: 15px;
+  font-style: italic;
+  color: #555;
+  font-size: 0.85em;
+}
+
+table th, table td {
+  padding-left: 30px;
+  padding-right: 30px;
+  border: 1px solid #dee2e6 !important;
+}
+
